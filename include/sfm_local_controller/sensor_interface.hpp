@@ -9,23 +9,23 @@
  *
  */
 
-#ifndef SFMCONTROLLER_SENSOR_H_
-#define SFMCONTROLLER_SENSOR_H_
+#ifndef SFMCONTROLLER_SENSOR_HPP_
+#define SFMCONTROLLER_SENSOR_HPP_
 
-#include <geometry_msgs/PointStamped.h>
-#include <geometry_msgs/Vector3.h>
-#include <nav_msgs/Odometry.h>
-#include <ros/ros.h>
-#include <sensor_msgs/Range.h>
-#include <tf/tf.h>
+#include <geometry_msgs/msg/point_stamped.hpp>
+#include <geometry_msgs/msg/vector3.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/range.hpp>
+#include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_listener.h>
-#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/msg/marker.hpp>
 // sensor input for obstacles
-#include <sensor_msgs/LaserScan.h>
+#include <sensor_msgs/msg/laser_scan.hpp>
 // Detection input for social navigation
 #include <dynamic_obstacle_detector/DynamicObstacles.h>
-#include <people_msgs/People.h>
+#include <people_msgs/msg/people.hpp>
 // Social Force Model
 #include <lightsfm/angle.hpp>
 #include <lightsfm/sfm.hpp>
@@ -50,7 +50,7 @@ public:
    * @param robot_frame the coordinate frame of the robot base
    * @param odom_frame the coordinate frame of the robot odometry
    **/
-  SFMSensorInterface(ros::NodeHandle *n, tf2_ros::Buffer *tfBuffer,
+  SFMSensorInterface(rclcpp::Node::SharedPtr &n, std::shared_ptr<tf2_ros::Buffer> &tfBuffer,
                      float robot_max_lin_speed, float robot_radius,
                      float person_radius, std::string robot_frame,
                      std::string odom_frame);
@@ -64,13 +64,13 @@ public:
    * @brief  Callback to process the laser scan sensory input.
    * @param laser laserScan message to be processed
    */
-  void laserCb(const sensor_msgs::LaserScan::ConstPtr &laser);
+  void laserCb(const sensor_msgs::msg::LaserScan::SharedPtr laser);
 
   /**
    * @brief  Callback to process the people detected in the robot vecinity.
    * @param people message with the people to be processed
    */
-  void peopleCb(const people_msgs::People::ConstPtr &people);
+  void peopleCb(const people_msgs::msg::People::SharedPtr people);
 
   /**
    * @brief  Callback to process the moving obstacles detected in the robot
@@ -78,13 +78,13 @@ public:
    * @param obs messages with the obstacles to be processed.
    */
   void dynamicObsCb(
-      const dynamic_obstacle_detector::DynamicObstacles::ConstPtr &obs);
+      const dynamic_obstacle_detector::DynamicObstacles::SharedPtr obs);
 
   /**
    * @brief  Callback to process the odometry messages with the robot movement.
    * @param odom messages with the obstacles to be processed.
    */
-  void odomCb(const nav_msgs::Odometry::ConstPtr &odom);
+  void odomCb(const nav_msgs::msg::Odometry::SharedPtr odom);
 
   /**
    * @brief  Tranform a coordinate vector from one frame to another
@@ -93,7 +93,7 @@ public:
    * @param to string with the name of the target frame
    * @return coordinate vector in the target frame
    */
-  geometry_msgs::Vector3 transformVector(geometry_msgs::Vector3 &vector,
+  geometry_msgs::Vector3 transformVector(geometry_msgs::msg::Vector3 &vector,
                                          std::string from, std::string to);
 
   /**
@@ -118,14 +118,17 @@ private:
 
   // void updateAgents();
 
-  ros::NodeHandle *nh_; // Pointer to the node node handle
-  ros::NodeHandle n_;
-  tf2_ros::Buffer *tf_buffer_; // Pointer to the tfBuffer created in the node
+  rclcpp::Node::SharedPtr nh_; // Pointer to the node node handle
+  // ros::NodeHandle n_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_; // Pointer to the tfBuffer created in the node
 
-  ros::Subscriber odom_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   std::mutex odom_mutex_;
-  ros::Subscriber laser_sub_, people_sub_, dyn_obs_sub_, sonar_sub_;
-  ros::Publisher points_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
+  rclcpp::Subscription<people_msgs::msg::People>::SharedPtr people_sub_;
+  rclcpp::Subscription<dynamic_obstacle_detector::DynamicObstacles>::SharedPtr dyn_obs_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr sonar_sub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr points_pub_;
 
   std::vector<sfm::Agent> agents_; // 0: robot, 1..: Others
   // sfm::Agent robot_agent_;
@@ -133,9 +136,9 @@ private:
   std::vector<utils::Vector2d> obstacles_;
 
   bool laser_received_;
-  ros::Time last_laser_;
+  rclcpp::Time last_laser_;
 
-  people_msgs::People people_;
+  people_msgs::msg::People people_;
   std::mutex people_mutex_;
   dynamic_obstacle_detector::DynamicObstacles dyn_obs_;
   std::mutex obs_mutex_;

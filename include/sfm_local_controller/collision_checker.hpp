@@ -1,21 +1,21 @@
-#ifndef COLLISION_CHECKER_H_
-#define COLLISION_CHECKER_H_
+#ifndef COLLISION_CHECKER_HPP_
+#define COLLISION_CHECKER_HPP_
 
 #include <mutex>
-#include <ros/ros.h>
+#include "rclcpp/rclcpp.hpp"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <sys/time.h>
 #include <vector>
 
-#include <geometry_msgs/Point.h>
-#include <geometry_msgs/PointStamped.h>
-#include <geometry_msgs/TransformStamped.h>
-#include <geometry_msgs/Twist.h>
-#include <sensor_msgs/LaserScan.h>
-#include <sensor_msgs/Range.h>
-#include <tf2/impl/utils.h>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/point_stamped.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/range.hpp>
+#include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -37,7 +37,7 @@ public:
     float max_dist;
   };
 
-  CollisionChecker(ros::NodeHandle *n, tf2_ros::Buffer *tf, double max_lv,
+  CollisionChecker(rclcpp::Node::SharedPtr &n, std::shared_ptr<tf2_ros::Buffer> &tf, double max_lv,
                    double max_av, double lin_acc, double ang_acc,
                    double r_radius, std::string base_frame,
                    std::string planner_frame);
@@ -72,22 +72,22 @@ public:
     params_mutex_.unlock();
   }
 
-  void laserCallback(const sensor_msgs::LaserScan::ConstPtr &msg);
+  void laserCallback(const sensor_msgs::msg::LaserScan::ConstPtr &msg);
 
-  std::vector<geometry_msgs::Point>
-  laser_polar2euclidean(const sensor_msgs::LaserScan *scan);
+  std::vector<geometry_msgs::msg::Point>
+  laser_polar2euclidean(const sensor_msgs::msg::LaserScan *scan);
 
-  void transformPoints(std::vector<geometry_msgs::Point> &points,
+  void transformPoints(std::vector<geometry_msgs::msg::Point> &points,
                        std::string input_frame);
 
-  void rangeCallback(const sensor_msgs::Range::ConstPtr &msg);
+  void rangeCallback(const sensor_msgs::msg::Range::ConstPtr &msg);
   void initiateRanges();
 
   bool inRangeCollision(float x, float y);
   bool inLaserCollision(float x, float y,
-                        const std::vector<geometry_msgs::Point> &scanpoints);
+                        const std::vector<geometry_msgs::msg::Point> &scanpoints);
   bool inCollision(float x, float y,
-                   const std::vector<geometry_msgs::Point> &scanpoints);
+                   const std::vector<geometry_msgs::msg::Point> &scanpoints);
 
 private:
   float inline normalizeAngle(float val, float min, float max) {
@@ -157,10 +157,10 @@ private:
   }
 
   // tf::TransformListener* tf_;
-  tf2_ros::Buffer *tf_;
+  std::shared_ptr<tf2_ros::Buffer> tf_;
 
-  ros::NodeHandle *nh_; // Pointer to the node node handle
-  ros::NodeHandle n_;
+  rclcpp::Node::SharedPtr nh_; // Pointer to the node node handle
+  // rclcpp::Node n_;
 
   std::string odom_topic_;
   std::string robot_frame_;
@@ -184,9 +184,9 @@ private:
 
   // in case a laser range finder is also used
   bool use_laser_;
-  ros::Subscriber laser_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
   // sensor_msgs::LaserScan laser_scan_;
-  std::vector<geometry_msgs::Point> scanpoints_;
+  std::vector<geometry_msgs::msg::Point> scanpoints_;
   std::mutex laser_mutex_;
 
   // Sonar ranges employed
@@ -194,7 +194,7 @@ private:
   int num_ranges_;
   std::vector<std::string> range_topics_;
   std::vector<std::string> range_frames_;
-  std::vector<ros::Subscriber> range_subscribers_;
+  std::vector<rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr> range_subscribers_;
   // ros::Subscriber 				range_sub_;
   std::vector<range> ranges_;
   std::mutex range_mutex_;

@@ -25,41 +25,39 @@ namespace sfm_controller {
  * @param robot_frame the coordinate frame of the robot base
  * @param odom_frame the coordinate frame of the robot odometry
  **/
-SFMSensorInterface::SFMSensorInterface(ros::NodeHandle *n,
-                                       tf2_ros::Buffer *tfBuffer,
+SFMSensorInterface::SFMSensorInterface(rclcpp::Node::SharedPtr &n,
+                                       std::shared_ptr<tf2_ros::Buffer> &tfBuffer,
                                        float robot_max_lin_speed,
                                        float robot_radius, float person_radius,
                                        std::string robot_frame,
                                        std::string odom_frame)
-    : nh_(n), n_(), tf_buffer_(tfBuffer), person_radius_(person_radius),
+    : nh_(n), tf_buffer_(tfBuffer), person_radius_(person_radius),
       robot_frame_(robot_frame), odom_frame_(odom_frame) {
 
-  nh_->param("max_obstacle_dist", max_obstacle_dist_, float(3.0));
-  nh_->param("naive_goal_time", naive_goal_time_, float(2.0));
-  nh_->param("people_velocity", people_velocity_, float(1.0));
+  nh_->get_parameter_or("max_obstacle_dist", max_obstacle_dist_, float(3.0));
+  nh_->get_parameter_or("naive_goal_time", naive_goal_time_, float(2.0));
+  nh_->get_parameter_or("people_velocity", people_velocity_, float(1.0));
 
   laser_received_ = false;
-  last_laser_ = ros::Time::now();
+  last_laser_ = nh_->get_clock()->now();
 
   std::string laser_topic;
-  nh_->param("laser_topic", laser_topic, std::string("scan"));
+  nh_->get_parameter_or("laser_topic", laser_topic, std::string("scan"));
   std::string people_topic;
-  nh_->param("people_topic", people_topic, std::string("people"));
+  nh_->get_parameter_or("people_topic", people_topic, std::string("people"));
   std::string obs_topic;
-  nh_->param("dyn_obs_topic", obs_topic, std::string("obstacles"));
+  nh_->get_parameter_or("dyn_obs_topic", obs_topic, std::string("obstacles"));
   std::string odom_topic;
-  nh_->param("odom_topic", odom_topic, std::string("odom"));
+  nh_->get_parameter_or("odom_topic", odom_topic, std::string("odom"));
 
-  std::cout << std::endl
-            << "SFM SENSOR INTERFACE:" << std::endl
-            << "laser_topic: " << laser_topic << std::endl
-            << "people_topic: " << people_topic << std::endl
-            << "dyn_obs_topic: " << obs_topic << std::endl
-            << "odom_topic: " << odom_topic << std::endl
-            << "max_obstacle_dist: " << max_obstacle_dist_ << std::endl
-            << "naive_goal_time: " << naive_goal_time_ << std::endl
-            << "people_velocity: " << people_velocity_ << std::endl
-            << std::endl;
+  RCLCPP_INFO(nh_->get_logger(), "SFM SENSOR INTERFACE");
+  RCLCPP_INFO(nh_->get_logger(), "laser_topic: %s", laser_topic.c_str());
+  RCLCPP_INFO(nh_->get_logger(), "people_topic: %s", people_topic.c_str());
+  RCLCPP_INFO(nh_->get_logger(), "dyn_obs_topic: %s", dyn_obs_topic.c_str());
+  RCLCPP_INFO(nh_->get_logger(), "odom_topic: %s", odom_topic.c_str());
+  RCLCPP_INFO(nh_->get_logger(), "max_obstacle_dist: %.f", max_obstacle_dist_);
+  RCLCPP_INFO(nh_->get_logger(), "naive_goal_time: %.f", naive_goal_time_);
+  RCLCPP_INFO(nh_->get_logger(), "people_velocity: %.f", people_velocity_);
 
   // Initialize SFM. Just one agent (the robot)
   agents_.resize(1);
@@ -70,19 +68,19 @@ SFMSensorInterface::SFMSensorInterface(ros::NodeHandle *n,
   agents_[0].groupId = -1;
 
   // ros::NodeHandle n;
-  laser_sub_ = n_.subscribe<sensor_msgs::LaserScan>(
+  laser_sub_ = nh_->create_subscription<sensor_msgs::msg::LaserScan>(
       laser_topic.c_str(), 1, &SFMSensorInterface::laserCb, this);
 
-  people_sub_ = n_.subscribe<people_msgs::People>(
+  people_sub_ = nh_->create_subscription<people_msgs::msg::People>(
       people_topic.c_str(), 1, &SFMSensorInterface::peopleCb, this);
 
-  dyn_obs_sub_ = n_.subscribe<dynamic_obstacle_detector::DynamicObstacles>(
+  dyn_obs_sub_ = nh_->create_subscription<dynamic_obstacle_detector::DynamicObstacles>(
       obs_topic.c_str(), 1, &SFMSensorInterface::dynamicObsCb, this);
 
-  odom_sub_ = n_.subscribe<nav_msgs::Odometry>(
+  odom_sub_ = nh_->create_subscription<nav_msgs::msg::Odometry>(
       odom_topic.c_str(), 1, &SFMSensorInterface::odomCb, this);
 
-  points_pub_ = n_.advertise<visualization_msgs::Marker>(
+  points_pub_ = node_->create_publisher<visualization_msgs::msg::Marker>(
       "/sfm/markers/obstacle_points", 0);
 
   // sonars ?
@@ -100,12 +98,12 @@ SFMSensorInterface::~SFMSensorInterface() {}
  * @param laser laserScan message to be processed
  */
 void SFMSensorInterface::laserCb(
-    const sensor_msgs::LaserScan::ConstPtr &laser) {
+    const sensor_msgs::msg::LaserScan::SharedPtr laser) {
 
   laser_received_ = true;
-  last_laser_ = ros::Time::now();
+  last_laser_ = nh_->get_clock()->now();
 
-  ROS_INFO_ONCE("laser received");
+  RCLCPP_INFO_ONCE(nh_->get_logger(), "laser received");
 
   std::vector<utils::Vector2d> points;
   float angle = laser->angle_min;
@@ -130,9 +128,9 @@ void SFMSensorInterface::laserCb(
   // Transform points to
   // odom_frame_ if necessary
   if (laser->header.frame_id != odom_frame_) {
-    geometry_msgs::PointStamped out;
+    geometry_msgs::msg::PointStamped out;
     for (unsigned int i = 0; i < points.size(); i++) {
-      geometry_msgs::PointStamped in;
+      geometry_msgs::msg::PointStamped in;
       in.header.frame_id = laser->header.frame_id;
       in.header.stamp = ros::Time(0);
       in.point.x = points[i].getX();
@@ -145,7 +143,7 @@ void SFMSensorInterface::laserCb(
         points[i].setY(out.point.y);
 
       } catch (tf2::TransformException &ex) {
-        ROS_WARN("Could NOT transform "
+        RCLCPP_WARN(nh_->get_logger(), "Could NOT transform "
                  "laser point to %s: "
                  "%s",
                  robot_frame_.c_str(), ex.what());
@@ -161,23 +159,23 @@ void SFMSensorInterface::laserCb(
   // transform people positions to
   // robot frame
   // people_mutex_.lock();
-  people_msgs::People people = people_;
+  people_msgs::msg::People people = people_;
   // people_mutex_.unlock();
 
-  std::vector<geometry_msgs::Point> people_points;
+  std::vector<geometry_msgs::msg::Point> people_points;
   if (people.header.frame_id != odom_frame_) {
-    geometry_msgs::PointStamped person_point;
+    geometry_msgs::msg::PointStamped person_point;
     person_point.header = people.header;
 
     for (auto person : people.people) {
       person_point.point = person.position;
-      person_point.header.stamp = ros::Time(0);
+      person_point.header.stamp = nh_->get_clock()->now();
       try {
-        geometry_msgs::PointStamped p_point =
+        geometry_msgs::msg::PointStamped p_point =
             tf_buffer_->transform(person_point, odom_frame_);
         people_points.push_back(p_point.point);
       } catch (tf2::TransformException &ex) {
-        ROS_WARN("Could NOT transform "
+        RCLCPP_WARN(nh_->get_logger(), "Could NOT transform "
                  "person point to %s: "
                  "%s",
                  odom_frame_.c_str(), ex.what());
@@ -221,20 +219,20 @@ void SFMSensorInterface::laserCb(
   dynamic_obstacle_detector::DynamicObstacles obstacles = dyn_obs_;
   // obs_mutex_.unlock();
 
-  std::vector<geometry_msgs::Point> ob_points;
+  std::vector<geometry_msgs::msg::Point> ob_points;
   if (obstacles.header.frame_id != odom_frame_) {
     geometry_msgs::PointStamped ob_point;
     ob_point.header = obstacles.header;
     // ob_point.stamp = ros::Time();
     for (auto obstacle : obstacles.obstacles) {
       ob_point.point = obstacle.position;
-      ob_point.header.stamp = ros::Time(0);
+      ob_point.header.stamp = nh_->get_clock()->now();
       try {
         geometry_msgs::PointStamped o_point =
             tf_buffer_->transform(ob_point, odom_frame_);
         ob_points.push_back(o_point.point);
       } catch (tf2::TransformException &ex) {
-        ROS_WARN("Could NOT transform "
+        RCLCPP_WARN(nh_->get_logger(), "Could NOT transform "
                  "obstacle point to %s: "
                  "%s",
                  odom_frame_.c_str(), ex.what());
@@ -278,10 +276,10 @@ void SFMSensorInterface::publish_obstacle_points(
 
   visualization_msgs::Marker m;
   m.header.frame_id = odom_frame_; // robot_frame_
-  m.header.stamp = ros::Time::now();
+  m.header.stamp = nh_->get_clock()->now();
   m.ns = "sfm_obstacle_points";
-  m.type = visualization_msgs::Marker::POINTS;
-  m.action = visualization_msgs::Marker::ADD;
+  m.type = visualization_msgs::msg::Marker::POINTS;
+  m.action = visualization_msgs::msg::Marker::ADD;
   m.pose.orientation.x = 0.0;
   m.pose.orientation.y = 0.0;
   m.pose.orientation.z = 0.0;
@@ -294,7 +292,7 @@ void SFMSensorInterface::publish_obstacle_points(
   m.color.b = 0.0;
   m.color.a = 1.0;
   m.id = 1000;
-  m.lifetime = ros::Duration(0.3);
+  m.lifetime = rclcpp::Duration::from_seconds(0.3);
   // printf("Published Obstacles: ");
   for (utils::Vector2d p : points) {
     geometry_msgs::Point pt;
@@ -314,8 +312,8 @@ void SFMSensorInterface::publish_obstacle_points(
  * @param obs messages with the obstacles to be processed.
  */
 void SFMSensorInterface::dynamicObsCb(
-    const dynamic_obstacle_detector::DynamicObstacles::ConstPtr &obs) {
-  ROS_INFO_ONCE("Dyamic obs received");
+    const dynamic_obstacle_detector::DynamicObstacles::SharedPtr obs) {
+  RCLCPP_INFO_ONCE(nh_->get_logger(), "Dyamic obs received");
 
   // obs_mutex_.lock();
   dyn_obs_ = *obs;
@@ -324,28 +322,28 @@ void SFMSensorInterface::dynamicObsCb(
   std::vector<sfm::Agent> agents;
 
   // check if people are not in odom frame
-  geometry_msgs::PointStamped ps;
+  geometry_msgs::msg::PointStamped ps;
   for (unsigned i = 0; i < obs->obstacles.size(); i++) {
     sfm::Agent ag;
     ps.header.frame_id = obs->header.frame_id;
     ps.header.stamp = ros::Time(0);
     ps.point = obs->obstacles[i].position;
     if (obs->header.frame_id != odom_frame_) {
-      geometry_msgs::PointStamped p;
+      geometry_msgs::msg::PointStamped p;
       try {
         p = tf_buffer_->transform(ps, odom_frame_);
         ps = p;
       } catch (tf2::TransformException &ex) {
-        ROS_WARN("No transform %s", ex.what());
+        RCLCPP_WARN(nh_->get_logger(), "No transform %s", ex.what());
       }
     }
     ag.position.set(ps.point.x, ps.point.y);
 
-    geometry_msgs::Vector3 velocity;
+    geometry_msgs::msg::Vector3 velocity;
     velocity.x = obs->obstacles[i].velocity.x;
     velocity.y = obs->obstacles[i].velocity.y;
 
-    geometry_msgs::Vector3 localV = SFMSensorInterface::transformVector(
+    geometry_msgs::msg::Vector3 localV = SFMSensorInterface::transformVector(
         velocity, obs->header.frame_id, odom_frame_);
 
     ag.yaw = utils::Angle::fromRadian(atan2(localV.y, localV.x));
@@ -390,8 +388,8 @@ void SFMSensorInterface::dynamicObsCb(
  * @brief  Callback to process the people detected in the robot vecinity.
  * @param people message with the people to be processed
  */
-void SFMSensorInterface::peopleCb(const people_msgs::People::ConstPtr &people) {
-  ROS_INFO_ONCE("People received");
+void SFMSensorInterface::peopleCb(const people_msgs::msg::People::SharedPtr people) {
+  RCLCPP_INFO_ONCE(nh_->get_logger(), "People received");
 
   // people_mutex_.lock();
   people_ = *people;
@@ -400,28 +398,28 @@ void SFMSensorInterface::peopleCb(const people_msgs::People::ConstPtr &people) {
   std::vector<sfm::Agent> agents;
 
   // check if people are not in odom frame
-  geometry_msgs::PointStamped ps;
+  geometry_msgs::msg::PointStamped ps;
   for (unsigned i = 0; i < people->people.size(); i++) {
     sfm::Agent ag;
     ps.header.frame_id = people->header.frame_id;
-    ps.header.stamp = ros::Time(0);
+    ps.header.stamp = nh_->get_clock()->now();
     ps.point = people->people[i].position;
     if (people->header.frame_id != odom_frame_) {
-      geometry_msgs::PointStamped p;
+      geometry_msgs::msg::PointStamped p;
       try {
         p = tf_buffer_->transform(ps, odom_frame_);
         ps = p;
       } catch (tf2::TransformException &ex) {
-        ROS_WARN("No transform %s", ex.what());
+        RCLCPP_WARN(nh_->get_logger(), "No transform %s", ex.what());
       }
     }
     ag.position.set(ps.point.x, ps.point.y);
 
-    geometry_msgs::Vector3 velocity;
+    geometry_msgs::msg::Vector3 velocity;
     velocity.x = people->people[i].velocity.x;
     velocity.y = people->people[i].velocity.y;
 
-    geometry_msgs::Vector3 localV = SFMSensorInterface::transformVector(
+    geometry_msgs::msg::Vector3 localV = SFMSensorInterface::transformVector(
         velocity, people->header.frame_id, odom_frame_);
 
     ag.yaw = utils::Angle::fromRadian(atan2(localV.y, localV.x));
@@ -468,8 +466,8 @@ void SFMSensorInterface::peopleCb(const people_msgs::People::ConstPtr &people) {
  * @brief  Callback to process the odometry messages with the robot movement.
  * @param odom messages with the obstacles to be processed.
  */
-void SFMSensorInterface::odomCb(const nav_msgs::Odometry::ConstPtr &odom) {
-  ROS_INFO_ONCE("Odom received");
+void SFMSensorInterface::odomCb(const nav_msgs::Odometry::SharedPtr odom) {
+  RCLCPP_INFO_ONCE(nh_->get_logger(), "Odom received");
 
   // if (odom->header.frame_id != odom_frame_) {
   //   ROS_INFO("Odometry frame is %s, it should be %s",
@@ -490,11 +488,11 @@ void SFMSensorInterface::odomCb(const nav_msgs::Odometry::ConstPtr &odom) {
   agent.angularVelocity = odom->twist.twist.angular.z;
 
   // The velocity in the odom messages is in the robot local frame!!!
-  geometry_msgs::Vector3 velocity;
+  geometry_msgs::msg::Vector3 velocity;
   velocity.x = odom->twist.twist.linear.x;
   velocity.y = odom->twist.twist.linear.y;
 
-  geometry_msgs::Vector3 localV =
+  geometry_msgs::msg::Vector3 localV =
       SFMSensorInterface::transformVector(velocity, robot_frame_, odom_frame_);
   agent.velocity.set(localV.x, localV.y);
 
@@ -526,18 +524,18 @@ std::vector<sfm::Agent> SFMSensorInterface::getAgents() {
  * @param to string with the name of the target frame
  * @return coordinate vector in the target frame
  */
-geometry_msgs::Vector3
-SFMSensorInterface::transformVector(geometry_msgs::Vector3 &vector,
+geometry_msgs::msg::Vector3
+SFMSensorInterface::transformVector(geometry_msgs::msg::Vector3 &vector,
                                     std::string from, std::string to) {
-  geometry_msgs::Vector3 nextVector;
+  geometry_msgs::msg::Vector3 nextVector;
 
-  geometry_msgs::Vector3Stamped v;
-  geometry_msgs::Vector3Stamped nv;
+  geometry_msgs::msg::Vector3Stamped v;
+  geometry_msgs::msg::Vector3Stamped nv;
 
   v.header.frame_id = from;
 
   // we'll just use the most recent transform available for our simple example
-  v.header.stamp = ros::Time(0);
+  v.header.stamp = nh_->get_clock()->now();
 
   // just an arbitrary point in space
   v.vector.x = vector.x;
@@ -547,7 +545,7 @@ SFMSensorInterface::transformVector(geometry_msgs::Vector3 &vector,
   try {
     nv = tf_buffer_->transform(v, to);
   } catch (tf2::TransformException &ex) {
-    ROS_WARN("No transform %s", ex.what());
+    RCLCPP_WARN(nh_->get_logger(), "No transform %s", ex.what());
   }
 
   nextVector.x = nv.vector.x;
